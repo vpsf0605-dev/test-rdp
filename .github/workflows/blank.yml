@@ -1,0 +1,83 @@
+name: 🚀 ZUNRDP - LƯU TÀI KHOẢN GOOGLE
+
+on:
+  workflow_dispatch:
+    inputs:
+      token_choice:
+        description: '🔑 Chọn Token'
+        default: 'Token_1'
+        type: choice
+        options: ['Token_1', 'Token_2']
+
+jobs:
+  Zun-Premium:
+    runs-on: windows-2025
+    timeout-minutes: 360
+    
+    steps:
+      - name: 🔧 1. CÀI ĐẶT & TẢI DỮ LIỆU CŨ (BAO GỒM CHROME PROFILE)
+        env:
+          MEGA_MAIL: ${{ secrets.MEGA_EMAIL }}
+          MEGA_PASS: ${{ secrets.MEGA_PASSWORD }}
+        run: |
+          # 1. Tạo User & Mở RDP
+          $Password = ConvertTo-SecureString "ZunRDP@123456" -AsPlainText -Force
+          New-LocalUser -Name "ADMINZUN" -Password $Password -AccountNeverExpires -ErrorAction SilentlyContinue
+          Add-LocalGroupMember -Group "Administrators" -Member "ADMINZUN"
+          
+          # 2. Cài Chrome và Mega
+          choco install googlechrome megacmd -y --no-progress
+          $env:PATH += ";C:\Program Files\MEGAcmd"
+          
+          # 3. Đăng nhập Mega & Tải bản lưu
+          mega-login $env:MEGA_MAIL $env:MEGA_PASS
+          mega-get /ZunData.zip C:\ -ErrorAction SilentlyContinue
+          
+          # 4. Nếu có bản lưu, tiến hành giải nén vào hệ thống
+          if (Test-Path "C:\ZunData.zip") {
+              Write-Host "📦 Đang phục hồi tài khoản Google và File..." -ForegroundColor Cyan
+              Expand-Archive -Path "C:\ZunData.zip" -DestinationPath "C:\Users\ADMINZUN\" -Force
+              Remove-Item "C:\ZunData.zip"
+          }
+
+      - name: 🌐 2. KẾT NỐI TAILSCALE
+        env:
+          TOKEN_1: ${{ secrets.TAILSCALE_AUTH_KEY }}
+          TOKEN_2: ${{ secrets.TAILSCALE_AUTH_KEY_2 }}
+        run: |
+          $Token = if ("${{ github.event.inputs.token_choice }}" -eq "Token_1") { $env:TOKEN_1 } else { $env:TOKEN_2 }
+          Invoke-WebRequest -Uri "https://pkgs.tailscale.com/stable/tailscale-setup-latest-amd64.msi" -OutFile "ts.msi"
+          Start-Process msiexec.exe -ArgumentList "/i", "ts.msi", "/quiet" -Wait
+          & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=$Token --hostname=zun-vps-2025 --accept-routes --reset
+
+      - name: ⏳ 3. TREO MÁY & KIỂM TRA LỆNH LƯU
+        run: |
+          Write-Host "👉 MUỐN LƯU TẤT CẢ TÀI KHOẢN GOOGLE: Tạo Folder 'SAVE_NOW' trên Desktop" -ForegroundColor Yellow
+          $timeout = New-TimeSpan -Minutes 350
+          $sw = [diagnostics.stopwatch]::StartNew()
+          while ($sw.Elapsed -lt $timeout) {
+              if (Test-Path "C:\Users\ADMINZUN\Desktop\SAVE_NOW") {
+                  Write-Host "🔔 Đang sao lưu tài khoản và dữ liệu..." -ForegroundColor Magenta
+                  Stop-Process -Name "chrome" -ErrorAction SilentlyContinue # Phải đóng Chrome mới lưu được dữ liệu
+                  Start-Sleep -Seconds 3
+                  
+                  # Nén toàn bộ Profile Chrome + Desktop
+                  Compress-Archive -Path "C:\Users\ADMINZUN\Desktop", "C:\Users\ADMINZUN\AppData\Local\Google\Chrome\User Data" -DestinationPath "C:\ZunData.zip" -Force
+                  
+                  $env:PATH += ";C:\Program Files\MEGAcmd"
+                  mega-put -c C:\ZunData.zip /
+                  Remove-Item "C:\Users\ADMINZUN\Desktop\SAVE_NOW" -Recurse -Force
+                  Write-Host "✅ ĐÃ LƯU XONG TÀI KHOẢN LÊN MEGA!" -ForegroundColor Green
+              }
+              Start-Sleep -Seconds 10
+          }
+
+      - name: 📦 4. TỰ ĐỘNG LƯU CUỐI GIỜ
+        if: always()
+        run: |
+          Stop-Process -Name "chrome" -ErrorAction SilentlyContinue
+          $env:PATH += ";C:\Program Files\MEGAcmd"
+          Compress-Archive -Path "C:\Users\ADMINZUN\Desktop", "C:\Users\ADMINZUN\AppData\Local\Google\Chrome\User Data" -DestinationPath "C:\ZunData.zip" -Force
+          mega-put -c C:\ZunData.zip /
+          mega-logout
+          
